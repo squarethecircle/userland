@@ -109,13 +109,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 int mmal_status_to_int(MMAL_STATUS_T status);
 static void signal_handler(int signal_number);
-enum COORDTYPE
+typedef enum 
 { 
    north,
    east,
    west,
    south
-};
+} COORDTYPE;
 
 struct coordinate
 {
@@ -123,7 +123,7 @@ struct coordinate
    int deg;
    int min_scaled;
    int min_scale;   
-}
+};
 
 struct gps_info
 {

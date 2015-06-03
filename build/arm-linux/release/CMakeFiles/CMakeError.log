@@ -1,0 +1,47 @@
+Compiling the C compiler identification source file "CMakeCCompilerId.c" failed.
+Compiler: arm-linux-gnueabihf-gcc 
+Build flags: ;-U_FORTIFY_SOURCE;-U_FORTIFY_SOURCE
+Id flags: 
+
+The output was:
+No such file or directory
+
+
+Compiling the C compiler identification source file "CMakeCCompilerId.c" failed.
+Compiler: arm-linux-gnueabihf-gcc 
+Build flags: ;-U_FORTIFY_SOURCE;-U_FORTIFY_SOURCE
+Id flags: -c
+
+The output was:
+No such file or directory
+
+
+Compiling the C compiler identification source file "CMakeCCompilerId.c" failed.
+Compiler: arm-linux-gnueabihf-gcc 
+Build flags: ;-U_FORTIFY_SOURCE;-U_FORTIFY_SOURCE
+Id flags: -Aa
+
+The output was:
+No such file or directory
+
+
+Checking whether the C compiler is IAR using "" did not match "IAR .+ Compiler":
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: arm-linux-gnueabihf-g++ 
+Build flags: 
+Id flags: 
+
+The output was:
+No such file or directory
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: arm-linux-gnueabihf-g++ 
+Build flags: 
+Id flags: -c
+
+The output was:
+No such file or directory
+
+
+Checking whether the CXX compiler is IAR using "" did not match "IAR .+ Compiler":
