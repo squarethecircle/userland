@@ -1400,7 +1400,7 @@ static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag)
 {
    if (state->numExifTags < MAX_USER_EXIF_TAGS)
    {
-      state->exiftags[state->numExifTags] = exif_tag;
+      state->exifTags[state->numExifTags] = exif_tag;
       state->numExifTags++;
    }
 }
@@ -1418,12 +1418,12 @@ static MMAL_STATUS_T connect_ports(MMAL_PORT_T *output_port, MMAL_PORT_T *input_
 {
    MMAL_STATUS_T status;
 
-   status =  mmal_connection_create(connection, output_port, input_port, mmal_connection_flag_tunnelling | mmal_connection_flag_allocation_on_input);
+   status =  mmal_connection_create(connection, output_port, input_port, MMAL_CONNECTION_FLAG_TUNNELLING | MMAL_CONNECTION_FLAG_ALLOCATION_ON_INPUT);
 
-   if (status == mmal_success)
+   if (status == MMAL_SUCCESS)
    {
       status =  mmal_connection_enable(*connection);
-      if (status != mmal_success)
+      if (status != MMAL_SUCCESS)
          mmal_connection_destroy(*connection);
    }
 
@@ -1446,12 +1446,12 @@ static MMAL_STATUS_T connect_ports(MMAL_PORT_T *output_port, MMAL_PORT_T *input_
 
 MMAL_STATUS_T create_filenames(char** finalname, char** tempname, char * pattern, int frame)
 {
-   *finalname = null;
-   *tempname = null;
+   *finalname = NULL;
+   *tempname = NULL;
    if (0 > asprintf(finalname, pattern, frame) ||
        0 > asprintf(tempname, "%s~", *finalname))
    {
-      if (*finalname != null)
+      if (*finalname != NULL)
       {
          free(*finalname);
       }
@@ -1516,14 +1516,14 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
    if (current_time >= complete_time && state->timeout != 0)
       keep_running = 0;
 
-   switch (state->framenextmethod)
+   switch (state->frameNextMethod)
    {
-   case frame_next_single :
+   case FRAME_NEXT_SINGLE :
       // simple timeout for a single capture
       vcos_sleep(state->timeout);
       return 0;
 
-   case frame_next_forever :
+   case FRAME_NEXT_FOREVER :
    {
       *frame+=1;
 
@@ -1534,7 +1534,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       return 1;
    }
 
-   case frame_next_timelapse :
+   case FRAME_NEXT_TIMELAPSE :
    {
       static int64_t next_frame_ms = -1;
 
@@ -1584,7 +1584,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       return keep_running;
    }
 
-   case frame_next_keypress :
+   case FRAME_NEXT_KEYPRESS :
    {
       int ch;
 
@@ -1601,7 +1601,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       }
    }
 
-   case frame_next_immediately :
+   case FRAME_NEXT_IMMEDIATELY :
    {
       // not waiting, just go to next frame.
       // actually, we do need a slight delay here otherwise exposure goes
@@ -1618,13 +1618,13 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       return keep_running;
    }
 
-   case frame_next_gpio :
+   case FRAME_NEXT_GPIO :
    {
        // intended for gpio firing of a capture
       return 0;
    }
 
-   case frame_next_signal :
+   case FRAME_NEXT_SIGNAL :
    {
       // need to wait for a SIGUSR1 signal
       sigset_t waitset;
@@ -1670,7 +1670,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
 static void rename_file(RASPISTILL_STATE *state, file *output_file,
       const char *final_filename, const char *use_filename, int frame)
 {
-   mmal_status_t status;
+   MMAL_STATUS_T status;
 
    fclose(output_file);
    vcos_assert(use_filename != null && final_filename != null);
@@ -1686,7 +1686,7 @@ static void rename_file(RASPISTILL_STATE *state, file *output_file,
       status = create_filenames(&final_link, &use_link, state->linkname, frame);
 
       // create hard link if possible, symlink otherwise
-      if (status != mmal_success
+      if (status != MMAL_SUCCESS
             || (0 != link(final_filename, use_link)
                &&  0 != symlink(final_filename, use_link))
             || 0 != rename(use_link, final_link))
@@ -1837,7 +1837,7 @@ int main(int argc, const char **argv)
    RASPISTILL_STATE state;
    int exit_code = ex_ok;
 
-   mmal_status_t status = mmal_success;
+   MMAL_STATUS_T status = MMAL_SUCCESS;
    MMAL_PORT_T *camera_preview_port = null;
    MMAL_PORT_T *camera_video_port = null;
    MMAL_PORT_T *camera_still_port = null;
@@ -1887,18 +1887,18 @@ int main(int argc, const char **argv)
    // camera and encoder are different in stills/video, but preview
    // is the same so handed off to a separate module
 
-   if ((status = create_camera_component(&state)) != mmal_success)
+   if ((status = create_camera_component(&state)) != MMAL_SUCCESS)
    {
       vcos_log_error("%s: failed to create camera component", __func__);
       exit_code = ex_software;
    }
-   else if ((!state.usegl) && (status = raspipreview_create(&state.preview_parameters)) != mmal_success)
+   else if ((!state.usegl) && (status = raspipreview_create(&state.preview_parameters)) != MMAL_SUCCESS)
    {
       vcos_log_error("%s: failed to create preview component", __func__);
       destroy_camera_component(&state);
       exit_code = ex_software;
    }
-   else if ((status = create_encoder_component(&state)) != mmal_success)
+   else if ((status = create_encoder_component(&state)) != MMAL_SUCCESS)
    {
       vcos_log_error("%s: failed to create encode component", __func__);
       raspipreview_destroy(&state.preview_parameters);
@@ -1931,9 +1931,9 @@ int main(int argc, const char **argv)
          status = connect_ports(camera_preview_port, preview_input_port, &state.preview_connection);
       }
 
-      if (status == mmal_success)
+      if (status == MMAL_SUCCESS)
       {
-         vcos_status_t vcos_status;
+         VCOS_STATUS_T vcos_status;
 
          if (state.verbose)
             fprintf(stderr, "connecting camera stills port to encoder input port\n");
@@ -1941,7 +1941,7 @@ int main(int argc, const char **argv)
          // now connect the camera to the encoder
          status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
 
-         if (status != mmal_success)
+         if (status != MMAL_SUCCESS)
          {
             vcos_log_error("%s: failed to connect camera video port to encoder input", __func__);
             goto error;
@@ -1959,7 +1959,7 @@ int main(int argc, const char **argv)
          if (state.usegl && (raspitex_start(&state.raspitex_state) != 0))
             goto error;
 
-         if (status != mmal_success)
+         if (status != MMAL_SUCCESS)
          {
             vcos_log_error("failed to setup encoder output");
             goto error;
@@ -2026,7 +2026,7 @@ int main(int argc, const char **argv)
                   {
                      vcos_assert(use_filename == null && final_filename == null);
                      status = create_filenames(&final_filename, &use_filename, state.filename, frame);
-                     if (status  != mmal_success)
+                     if (status  != MMAL_SUCCESS)
                      {
                         vcos_log_error("unable to create filenames");
                         goto error;
@@ -2077,14 +2077,14 @@ int main(int argc, const char **argv)
                   // is not enabled
                   if (state.wantraw)
                   {
-                     if (mmal_port_parameter_set_boolean(camera_still_port, mmal_parameter_enable_raw_capture, 1) != mmal_success)
+                     if (mmal_port_parameter_set_boolean(camera_still_port, mmal_parameter_enable_raw_capture, 1) != MMAL_SUCCESS)
                      {
                         vcos_log_error("raw was requested, but failed to enable");
                      }
                   }
 
                   // there is a possibility that shutter needs to be set each loop.
-                  if (mmal_status_to_int(mmal_port_parameter_set_uint32(state.camera_component->control, mmal_parameter_shutter_speed, state.camera_parameters.shutter_speed) != mmal_success))
+                  if (mmal_status_to_int(mmal_port_parameter_set_uint32(state.camera_component->control, mmal_parameter_shutter_speed, state.camera_parameters.shutter_speed) != MMAL_SUCCESS))
                      vcos_log_error("unable to set shutter speed");
 
 
@@ -2107,7 +2107,7 @@ int main(int argc, const char **argv)
                      if (!buffer)
                         vcos_log_error("unable to get a required buffer %d from pool queue", q);
 
-                     if (mmal_port_send_buffer(encoder_output_port, buffer)!= mmal_success)
+                     if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
                         vcos_log_error("unable to send a buffer to encoder output port (%d)", q);
                   }
 
@@ -2119,7 +2119,7 @@ int main(int argc, const char **argv)
                   if (state.verbose)
                      fprintf(stderr, "starting capture %d\n", frame);
 
-                  if (mmal_port_parameter_set_boolean(camera_still_port, mmal_parameter_capture, 1) != mmal_success)
+                  if (mmal_port_parameter_set_boolean(camera_still_port, mmal_parameter_capture, 1) != MMAL_SUCCESS)
                   {
                      vcos_log_error("%s: failed to start capture", __func__);
                   }
