@@ -128,8 +128,8 @@ struct coordinate
 struct gps_info
 {
    int serial;
-   coordinate latitude;
-   coordinate longitude;
+   struct coordinate latitude;
+   struct coordinate longitude;
    struct minmea_float speed;
    struct minmea_float course;
    struct minmea_float altitude;
