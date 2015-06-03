@@ -1376,11 +1376,11 @@ static void add_exif_tags(RASPISTILL_STATE *state)
 
    // now send any user supplied tags
 
-   for (i=0;i<state->numexiftags && i < max_user_exif_tags;i++)
+   for (i=0;i<state->numExifTags && i < MAX_USER_EXIF_TAGS;i++)
    {
-      if (state->exiftags[i])
+      if (state->exifTags[i])
       {
-         add_exif_tag(state, state->exiftags[i]);
+         add_exif_tag(state, state->exifTags[i]);
       }
    }
 }
@@ -1396,12 +1396,12 @@ static void add_exif_tags(RASPISTILL_STATE *state)
  * @param exif_tag exif tag string
  *
  */
-static void store_exif_tag(raspistill_state *state, const char *exif_tag)
+static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag)
 {
-   if (state->numexiftags < max_user_exif_tags)
+   if (state->numExifTags < MAX_USER_EXIF_TAGS)
    {
-      state->exiftags[state->numexiftags] = exif_tag;
-      state->numexiftags++;
+      state->exiftags[state->numExifTags] = exif_tag;
+      state->numExifTags++;
    }
 }
 
@@ -1414,9 +1414,9 @@ static void store_exif_tag(raspistill_state *state, const char *exif_tag)
  * @return returns a mmal_status_t giving result of operation
  *
  */
-static mmal_status_t connect_ports(mmal_port_t *output_port, mmal_port_t *input_port, mmal_connection_t **connection)
+static MMAL_STATUS_T connect_ports(MMAL_PORT_T *output_port, MMAL_PORT_T *input_port, MMAL_CONNECTION_T **connection)
 {
-   mmal_status_t status;
+   MMAL_STATUS_T status;
 
    status =  mmal_connection_create(connection, output_port, input_port, mmal_connection_flag_tunnelling | mmal_connection_flag_allocation_on_input);
 
@@ -1444,7 +1444,7 @@ static mmal_status_t connect_ports(mmal_port_t *output_port, mmal_port_t *input_
  * @return returns a mmal_status_t giving result of operation
 */
 
-mmal_status_t create_filenames(char** finalname, char** tempname, char * pattern, int frame)
+MMAL_STATUS_T create_filenames(char** finalname, char** tempname, char * pattern, int frame)
 {
    *finalname = null;
    *tempname = null;
@@ -1455,9 +1455,9 @@ mmal_status_t create_filenames(char** finalname, char** tempname, char * pattern
       {
          free(*finalname);
       }
-      return mmal_enomem;    // it may be some other error, but it is not worth getting it right
+      return MMAL_ENOMEM;    // it may be some other error, but it is not worth getting it right
    }
-   return mmal_success;
+   return MMAL_SUCCESS;
 }
 
 /**
@@ -1466,7 +1466,7 @@ mmal_status_t create_filenames(char** finalname, char** tempname, char * pattern
  * @param port  pointer the port
  *
  */
-static void check_disable_port(mmal_port_t *port)
+static void check_disable_port(MMAL_PORT_T *port)
 {
    if (port && port->is_enabled)
       mmal_port_disable(port);
@@ -1480,7 +1480,7 @@ static void check_disable_port(mmal_port_t *port)
  */
 static void signal_handler(int signal_number)
 {
-   if (signal_number == sigusr1)
+   if (signal_number == SIGUSR1)
    {
       // handle but ignore - prevents us dropping out if started in none-signal mode
       // and someone sends us the usr1 signal anyway
@@ -1501,7 +1501,7 @@ static void signal_handler(int signal_number)
  * @param [in][out] frame the last frame number, adjusted to next frame number on output
  * @return !0 if to continue, 0 if reached end of run
  */
-static int wait_for_next_frame(raspistill_state *state, int *frame)
+static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
 {
    static int64_t complete_time = -1;
    int keep_running = 1;
@@ -1626,21 +1626,21 @@ static int wait_for_next_frame(raspistill_state *state, int *frame)
 
    case frame_next_signal :
    {
-      // need to wait for a sigusr1 signal
+      // need to wait for a SIGUSR1 signal
       sigset_t waitset;
       int sig;
       int result = 0;
 
       sigemptyset( &waitset );
-      sigaddset( &waitset, sigusr1 );
+      sigaddset( &waitset, SIGUSR1 );
 
       // we are multi threaded because we use mmal, so need to use the pthread
-      // variant of procmask to block sigusr1 so we can wait on it.
+      // variant of procmask to block SIGUSR1 so we can wait on it.
       pthread_sigmask( sig_block, &waitset, null );
 
       if (state->verbose)
       {
-         fprintf(stderr, "waiting for sigusr1 to initiate capture\n");
+         fprintf(stderr, "waiting for SIGUSR1 to initiate capture\n");
       }
 
       result = sigwait( &waitset, &sig );
@@ -1649,7 +1649,7 @@ static int wait_for_next_frame(raspistill_state *state, int *frame)
       {
          if( result == 0)
          {
-            fprintf(stderr, "received sigusr1\n");
+            fprintf(stderr, "received SIGUSR1\n");
          }
          else
          {
@@ -1667,7 +1667,7 @@ static int wait_for_next_frame(raspistill_state *state, int *frame)
    return keep_running;
 }
 
-static void rename_file(raspistill_state *state, file *output_file,
+static void rename_file(RASPISTILL_STATE *state, file *output_file,
       const char *final_filename, const char *use_filename, int frame)
 {
    mmal_status_t status;
@@ -1834,16 +1834,16 @@ int main(int argc, const char **argv)
 
 
    // our main data storage vessel..
-   raspistill_state state;
+   RASPISTILL_STATE state;
    int exit_code = ex_ok;
 
    mmal_status_t status = mmal_success;
-   mmal_port_t *camera_preview_port = null;
-   mmal_port_t *camera_video_port = null;
-   mmal_port_t *camera_still_port = null;
-   mmal_port_t *preview_input_port = null;
-   mmal_port_t *encoder_input_port = null;
-   mmal_port_t *encoder_output_port = null;
+   MMAL_PORT_T *camera_preview_port = null;
+   MMAL_PORT_T *camera_video_port = null;
+   MMAL_PORT_T *camera_still_port = null;
+   MMAL_PORT_T *preview_input_port = null;
+   MMAL_PORT_T *encoder_input_port = null;
+   MMAL_PORT_T *encoder_output_port = null;
 
    bcm_host_init();
 
@@ -1853,7 +1853,7 @@ int main(int argc, const char **argv)
    signal(sigint, signal_handler);
 
    // disable usr1 for the moment - may be reenabled if go in to signal capture mode
-   signal(sigusr1, sig_ign);
+   signal(SIGUSR1, sig_ign);
 
    default_status(&state);
 
