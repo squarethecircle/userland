@@ -75,9 +75,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "RaspiPreview.h"
 #include "RaspiCLI.h"
 #include "RaspiTex.h"
+#include "minmea.h"
 
 #include <semaphore.h>
-
+#include <pthread.h>
+#include <wiringSerial.h>
 // Standard port setting for the camera component
 #define MMAL_CAMERA_PREVIEW_PORT 0
 #define MMAL_CAMERA_VIDEO_PORT 1
@@ -107,7 +109,31 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 int mmal_status_to_int(MMAL_STATUS_T status);
 static void signal_handler(int signal_number);
+enum COORDTYPE
+{ 
+   north,
+   east,
+   west,
+   south
+};
 
+struct coordinate
+{
+   COORDTYPE ref;
+   int deg;
+   int min_scaled;
+   int min_scale;   
+}
+
+struct gps_info
+{
+   int serial;
+   coordinate latitude;
+   coordinate longitude;
+   struct minmea_float speed;
+   struct minmea_float course;
+   struct minmea_float altitude;
+} nav_data;
 
 /** Structure containing all state information for the current run
  */
@@ -1314,56 +1340,90 @@ static void add_exif_tags(RASPISTILL_STATE *state)
    snprintf(exif_buf, sizeof(exif_buf), "IFD0.DateTime=%s", time_buf);
    add_exif_tag(state, exif_buf);
 
-   // Now send any user supplied tags
+   snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitude=%d/1,%d/%d,0/1000", nav_data.latitude.deg,nav_data.latitude.min_scaled,nav_data.latitude.min_scale);
+   add_exif_tag(state, exif_buf);
 
-   for (i=0;i<state->numExifTags && i < MAX_USER_EXIF_TAGS;i++)
+   if (nav_data.latitude.ref == north)
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=N");
+   if (nav_data.latitude.ref == south)
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=S");
+   add_exif_tag(state, exif_buf);
+
+
+   snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitude=%d/1,%d/%d,0/1000", nav_data.longitude.deg,nav_data.longitude.min_scaled,nav_data.longitude.min_scale);
+   add_exif_tag(state, exif_buf);
+
+   if (nav_data.longitude.ref == north)
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=N");
+   if (nav_data.longitude.ref == south)
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=S");
+   add_exif_tag(state, exif_buf);
+
+   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSAltitude=%d/%d",nav_data.altitude.value,nav_data.altitude.scale);
+   add_exif_tag(state, exif_buf);
+
+   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSSpeed=%d/%d",nav_data.speed.value,nav_data.speed.scale);
+   add_exif_tag(state, exif_buf);
+
+   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSTrack=%d/%d",nav_data.course.value,nav_data.course.scale);
+   add_exif_tag(state, exif_buf);
+
+   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSImgDirection=%d/%d",nav_data.course.value,nav_data.course.scale);
+   add_exif_tag(state, exif_buf);
+
+
+
+
+   // now send any user supplied tags
+
+   for (i=0;i<state->numexiftags && i < max_user_exif_tags;i++)
    {
-      if (state->exifTags[i])
+      if (state->exiftags[i])
       {
-         add_exif_tag(state, state->exifTags[i]);
+         add_exif_tag(state, state->exiftags[i]);
       }
    }
 }
 
 /**
- * Stores an EXIF tag in the state, incrementing various pointers as necessary.
- * Any tags stored in this way will be added to the image file when add_exif_tags
+ * stores an exif tag in the state, incrementing various pointers as necessary.
+ * any tags stored in this way will be added to the image file when add_exif_tags
  * is called
  *
- * Will not store if run out of storage space
+ * will not store if run out of storage space
  *
- * @param state Pointer to state control struct
- * @param exif_tag EXIF tag string
+ * @param state pointer to state control struct
+ * @param exif_tag exif tag string
  *
  */
-static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag)
+static void store_exif_tag(raspistill_state *state, const char *exif_tag)
 {
-   if (state->numExifTags < MAX_USER_EXIF_TAGS)
+   if (state->numexiftags < max_user_exif_tags)
    {
-      state->exifTags[state->numExifTags] = exif_tag;
-      state->numExifTags++;
+      state->exiftags[state->numexiftags] = exif_tag;
+      state->numexiftags++;
    }
 }
 
 /**
- * Connect two specific ports together
+ * connect two specific ports together
  *
- * @param output_port Pointer the output port
- * @param input_port Pointer the input port
- * @param Pointer to a mmal connection pointer, reassigned if function successful
- * @return Returns a MMAL_STATUS_T giving result of operation
+ * @param output_port pointer the output port
+ * @param input_port pointer the input port
+ * @param pointer to a mmal connection pointer, reassigned if function successful
+ * @return returns a mmal_status_t giving result of operation
  *
  */
-static MMAL_STATUS_T connect_ports(MMAL_PORT_T *output_port, MMAL_PORT_T *input_port, MMAL_CONNECTION_T **connection)
+static mmal_status_t connect_ports(mmal_port_t *output_port, mmal_port_t *input_port, mmal_connection_t **connection)
 {
-   MMAL_STATUS_T status;
+   mmal_status_t status;
 
-   status =  mmal_connection_create(connection, output_port, input_port, MMAL_CONNECTION_FLAG_TUNNELLING | MMAL_CONNECTION_FLAG_ALLOCATION_ON_INPUT);
+   status =  mmal_connection_create(connection, output_port, input_port, mmal_connection_flag_tunnelling | mmal_connection_flag_allocation_on_input);
 
-   if (status == MMAL_SUCCESS)
+   if (status == mmal_success)
    {
       status =  mmal_connection_enable(*connection);
-      if (status != MMAL_SUCCESS)
+      if (status != mmal_success)
          mmal_connection_destroy(*connection);
    }
 
@@ -1372,76 +1432,76 @@ static MMAL_STATUS_T connect_ports(MMAL_PORT_T *output_port, MMAL_PORT_T *input_
 
 
 /**
- * Allocates and generates a filename based on the
+ * allocates and generates a filename based on the
  * user-supplied pattern and the frame number.
- * On successful return, finalName and tempName point to malloc()ed strings
- * which must be freed externally.  (On failure, returns nulls that
+ * on successful return, finalname and tempname point to malloc()ed strings
+ * which must be freed externally.  (on failure, returns nulls that
  * don't need free()ing.)
  *
- * @param finalName pointer receives an
+ * @param finalname pointer receives an
  * @param pattern sprintf pattern with %d to be replaced by frame
  * @param frame for timelapse, the frame number
- * @return Returns a MMAL_STATUS_T giving result of operation
+ * @return returns a mmal_status_t giving result of operation
 */
 
-MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern, int frame)
+mmal_status_t create_filenames(char** finalname, char** tempname, char * pattern, int frame)
 {
-   *finalName = NULL;
-   *tempName = NULL;
-   if (0 > asprintf(finalName, pattern, frame) ||
-       0 > asprintf(tempName, "%s~", *finalName))
+   *finalname = null;
+   *tempname = null;
+   if (0 > asprintf(finalname, pattern, frame) ||
+       0 > asprintf(tempname, "%s~", *finalname))
    {
-      if (*finalName != NULL)
+      if (*finalname != null)
       {
-         free(*finalName);
+         free(*finalname);
       }
-      return MMAL_ENOMEM;    // It may be some other error, but it is not worth getting it right
+      return mmal_enomem;    // it may be some other error, but it is not worth getting it right
    }
-   return MMAL_SUCCESS;
+   return mmal_success;
 }
 
 /**
- * Checks if specified port is valid and enabled, then disables it
+ * checks if specified port is valid and enabled, then disables it
  *
- * @param port  Pointer the port
+ * @param port  pointer the port
  *
  */
-static void check_disable_port(MMAL_PORT_T *port)
+static void check_disable_port(mmal_port_t *port)
 {
    if (port && port->is_enabled)
       mmal_port_disable(port);
 }
 
 /**
- * Handler for sigint signals
+ * handler for sigint signals
  *
- * @param signal_number ID of incoming signal.
+ * @param signal_number id of incoming signal.
  *
  */
 static void signal_handler(int signal_number)
 {
-   if (signal_number == SIGUSR1)
+   if (signal_number == sigusr1)
    {
-      // Handle but ignore - prevents us dropping out if started in none-signal mode
-      // and someone sends us the USR1 signal anyway
+      // handle but ignore - prevents us dropping out if started in none-signal mode
+      // and someone sends us the usr1 signal anyway
    }
    else
    {
-      // Going to abort on all other signals
-      vcos_log_error("Aborting program\n");
+      // going to abort on all other signals
+      vcos_log_error("aborting program\n");
       exit(130);
    }
 }
 
 
 /**
- * Function to wait in various ways (depending on settings) for the next frame
+ * function to wait in various ways (depending on settings) for the next frame
  *
- * @param state Pointer to the state data
- * @param [in][out] frame The last frame number, adjusted to next frame number on output
+ * @param state pointer to the state data
+ * @param [in][out] frame the last frame number, adjusted to next frame number on output
  * @return !0 if to continue, 0 if reached end of run
  */
-static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
+static int wait_for_next_frame(raspistill_state *state, int *frame)
 {
    static int64_t complete_time = -1;
    int keep_running = 1;
@@ -1452,43 +1512,43 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       complete_time =  current_time + state->timeout;
 
    // if we have run out of time, flag we need to exit
-   // If timeout = 0 then always continue
+   // if timeout = 0 then always continue
    if (current_time >= complete_time && state->timeout != 0)
       keep_running = 0;
 
-   switch (state->frameNextMethod)
+   switch (state->framenextmethod)
    {
-   case FRAME_NEXT_SINGLE :
+   case frame_next_single :
       // simple timeout for a single capture
       vcos_sleep(state->timeout);
       return 0;
 
-   case FRAME_NEXT_FOREVER :
+   case frame_next_forever :
    {
       *frame+=1;
 
-      // Have a sleep so we don't hog the CPU.
+      // have a sleep so we don't hog the cpu.
       vcos_sleep(10000);
 
-      // Run forever so never indicate end of loop
+      // run forever so never indicate end of loop
       return 1;
    }
 
-   case FRAME_NEXT_TIMELAPSE :
+   case frame_next_timelapse :
    {
       static int64_t next_frame_ms = -1;
 
-      // Always need to increment by at least one, may add a skip later
+      // always need to increment by at least one, may add a skip later
       *frame += 1;
 
       if (next_frame_ms == -1)
       {
          vcos_sleep(state->timelapse);
 
-         // Update our current time after the sleep
+         // update our current time after the sleep
          current_time =  vcos_getmicrosecs64()/1000;
 
-         // Set our initial 'next frame time'
+         // set our initial 'next frame time'
          next_frame_ms = current_time + state->timelapse;
       }
       else
@@ -1497,17 +1557,17 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
 
          if (this_delay_ms < 0)
          {
-            // We are already past the next exposure time
+            // we are already past the next exposure time
             if (-this_delay_ms < -state->timelapse/2)
             {
-               // Less than a half frame late, take a frame and hope to catch up next time
+               // less than a half frame late, take a frame and hope to catch up next time
                next_frame_ms += state->timelapse;
-               vcos_log_error("Frame %d is %d ms late", *frame, (int)(-this_delay_ms));
+               vcos_log_error("frame %d is %d ms late", *frame, (int)(-this_delay_ms));
             }
             else
             {
                int nskip = 1 + (-this_delay_ms)/state->timelapse;
-               vcos_log_error("Skipping frame %d to restart at frame %d", *frame, *frame+nskip);
+               vcos_log_error("skipping frame %d to restart at frame %d", *frame, *frame+nskip);
                *frame += nskip;
                this_delay_ms += nskip * state->timelapse;
                vcos_sleep(this_delay_ms);
@@ -1524,30 +1584,30 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       return keep_running;
    }
 
-   case FRAME_NEXT_KEYPRESS :
+   case frame_next_keypress :
    {
-    	int ch;
+      int ch;
 
-    	if (state->verbose)
-         fprintf(stderr, "Press Enter to capture, X then ENTER to exit\n");
+      if (state->verbose)
+         fprintf(stderr, "press enter to capture, x then enter to exit\n");
 
-    	ch = getchar();
-    	*frame+=1;
-    	if (ch == 'x' || ch == 'X')
-    	   return 0;
-    	else
-    	{
- 	      return keep_running;
-    	}
+      ch = getchar();
+      *frame+=1;
+      if (ch == 'x' || ch == 'x')
+         return 0;
+      else
+      {
+         return keep_running;
+      }
    }
 
-   case FRAME_NEXT_IMMEDIATELY :
+   case frame_next_immediately :
    {
-      // Not waiting, just go to next frame.
-      // Actually, we do need a slight delay here otherwise exposure goes
+      // not waiting, just go to next frame.
+      // actually, we do need a slight delay here otherwise exposure goes
       // badly wrong since we never allow it frames to work it out
-      // This could probably be tuned down.
-      // First frame has a much longer delay to ensure we get exposure to a steady state
+      // this could probably be tuned down.
+      // first frame has a much longer delay to ensure we get exposure to a steady state
       if (*frame == 0)
          vcos_sleep(1000);
       else
@@ -1558,29 +1618,29 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       return keep_running;
    }
 
-   case FRAME_NEXT_GPIO :
+   case frame_next_gpio :
    {
-       // Intended for GPIO firing of a capture
+       // intended for gpio firing of a capture
       return 0;
    }
 
-   case FRAME_NEXT_SIGNAL :
+   case frame_next_signal :
    {
-      // Need to wait for a SIGUSR1 signal
+      // need to wait for a sigusr1 signal
       sigset_t waitset;
       int sig;
       int result = 0;
 
       sigemptyset( &waitset );
-      sigaddset( &waitset, SIGUSR1 );
+      sigaddset( &waitset, sigusr1 );
 
-      // We are multi threaded because we use mmal, so need to use the pthread
-      // variant of procmask to block SIGUSR1 so we can wait on it.
-      pthread_sigmask( SIG_BLOCK, &waitset, NULL );
+      // we are multi threaded because we use mmal, so need to use the pthread
+      // variant of procmask to block sigusr1 so we can wait on it.
+      pthread_sigmask( sig_block, &waitset, null );
 
       if (state->verbose)
       {
-         fprintf(stderr, "Waiting for SIGUSR1 to initiate capture\n");
+         fprintf(stderr, "waiting for sigusr1 to initiate capture\n");
       }
 
       result = sigwait( &waitset, &sig );
@@ -1589,11 +1649,11 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       {
          if( result == 0)
          {
-            fprintf(stderr, "Received SIGUSR1\n");
+            fprintf(stderr, "received sigusr1\n");
          }
          else
          {
-            fprintf(stderr, "Bad signal received - error %d\n", errno);
+            fprintf(stderr, "bad signal received - error %d\n", errno);
          }
       }
 
@@ -1603,20 +1663,20 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
    }
    } // end of switch
 
-   // Should have returned by now, but default to timeout
+   // should have returned by now, but default to timeout
    return keep_running;
 }
 
-static void rename_file(RASPISTILL_STATE *state, FILE *output_file,
+static void rename_file(raspistill_state *state, file *output_file,
       const char *final_filename, const char *use_filename, int frame)
 {
-   MMAL_STATUS_T status;
+   mmal_status_t status;
 
    fclose(output_file);
-   vcos_assert(use_filename != NULL && final_filename != NULL);
+   vcos_assert(use_filename != null && final_filename != null);
    if (0 != rename(use_filename, final_filename))
    {
-      vcos_log_error("Could not rename temp file to: %s; %s",
+      vcos_log_error("could not rename temp file to: %s; %s",
             final_filename,strerror(errno));
    }
    if (state->linkname)
@@ -1625,13 +1685,13 @@ static void rename_file(RASPISTILL_STATE *state, FILE *output_file,
       char *final_link;
       status = create_filenames(&final_link, &use_link, state->linkname, frame);
 
-      // Create hard link if possible, symlink otherwise
-      if (status != MMAL_SUCCESS
+      // create hard link if possible, symlink otherwise
+      if (status != mmal_success
             || (0 != link(final_filename, use_link)
                &&  0 != symlink(final_filename, use_link))
             || 0 != rename(use_link, final_link))
       {
-         vcos_log_error("Could not link as filename: %s; %s",
+         vcos_log_error("could not link as filename: %s; %s",
                state->linkname,strerror(errno));
       }
       if (use_link) free(use_link);
@@ -1639,166 +1699,295 @@ static void rename_file(RASPISTILL_STATE *state, FILE *output_file,
    }
 }
 
+void* gps_update(struct gps_info* sharedData)
+{
+   char buffer[500];
+   char line_buffer[100];
+   int in_buffer = 0;
+   while(1)
+   {
+      int read_bytes=read(shareddata.serial,(buffer+in_buffer),sizeof(buffer)-in_buffer);
+      in_buffer += read_bytes;
+      int start_line = 0;
+      for (int i = 0; i<in_buffer; i++)
+      {
+         if (buffer[i] == '\n')
+         {
+            int line_length = i - start_line + 1;
+            strncpy(line_buffer,&buffer[start_line],line_length);
+            line_buffer[line_length]='\0';
+            start_line = i+1;
+            switch(minmea_sentence_id(line_buffer))
+            {
+               case minmea_sentence_rmc:
+               {
+                  struct minmea_sentence_rmc frame;
+                  if (minmea_parse_rmc(&frame, line))
+                  {
+
+                     struct coordinate latitude;
+                     if (frame.latitude.value > 0)
+                     {
+                        latitude.ref = north;
+                     }
+                     else
+                     {
+                        frame.latitude.value *= -1;
+                        latitude.ref = south;
+                     }
+                     latitude.deg = frame.latitude.value / (frame.latitude.scale * 100);
+                     latitude.min_scaled = frame.latitude.value % (frame.latitude.scale * 100);
+                     latitude.min_scale = frame.latitude.scale;
+
+
+                     struct coordinate longitude;
+                     if (frame.longitude.value > 0)
+                     {
+                        longitude.ref = east;
+                     }
+                     else
+                     {
+                        frame.longitude.value *= -1;
+                        longitude.ref = west;
+                     }
+                     longitude.deg = frame.longitude.value / (frame.longitude.scale * 100);
+                     longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
+                     longitude.min_scale = frame.longitude.scale;
+
+
+                     shareddata.latitude = latitude;
+                     shareddata.longitude = longitude;
+                     shareddata.speed = frame.speed;
+                     shareddata.course = frame.course;
+                     
+                  }
+               } break;
+               case minmea_sentence_gga:
+               {
+                  struct minmea_sentence_gga frame;
+                  if (minmea_parse_gga(&frame, line))
+                  {
+                     struct coordinate latitude;
+                     if (frame.latitude.value > 0)
+                     {
+                        latitude.ref = north;
+                     }
+                     else
+                     {
+                        frame.latitude.value *= -1;
+                        latitude.ref = south;
+                     }
+                     latitude.deg = frame.latitude.value / (frame.latitude.scale * 100);
+                     latitude.min_scaled = frame.latitude.value % (frame.latitude.scale * 100);
+                     latitude.min_scale = frame.latitude.scale;
+
+                     struct coordinate longitude;
+                     if (frame.longitude.value > 0)
+                     {
+                        longitude.ref = east;
+                     }
+                     else
+                     {
+                        frame.longitude.value *= -1;
+                        longitude.ref = west;
+                     }
+                     longitude.deg = frame.longitude.value / (frame.longitude.scale * 100);
+                     longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
+                     longitude.min_scale = frame.longitude.scale;
+
+                     shareddata.latitude = latitude;
+                     shareddata.longitude = longitude;
+
+                     shareddata.altitude = frame.altitude;
+
+                  }
+               } break;
+            }
+            in_buffer -= line_length;
+         }
+
+      }
+      if (start_line > 0)
+      {
+         memmove(buffer,buffer+start_line,in_buffer);
+      }
+      usleep(100000);
+   }
+
+}
+
 /**
  * main
  */
 int main(int argc, const char **argv)
 {
-   // Our main data storage vessel..
-   RASPISTILL_STATE state;
-   int exit_code = EX_OK;
+   int serial_ret = serialopen("/dev/ttyama0",9600);
+   if (serial_ret < 0)
+   {
+      fprintf(stderr, "failed to init serial\n");
+      exit(ex_usage);
+   }
+   nav_data.serial=serial_ret;
+   pthread_t gps_sync;
+   pthread_create(&gps_sync, null, gps_update, &nav_data);
 
-   MMAL_STATUS_T status = MMAL_SUCCESS;
-   MMAL_PORT_T *camera_preview_port = NULL;
-   MMAL_PORT_T *camera_video_port = NULL;
-   MMAL_PORT_T *camera_still_port = NULL;
-   MMAL_PORT_T *preview_input_port = NULL;
-   MMAL_PORT_T *encoder_input_port = NULL;
-   MMAL_PORT_T *encoder_output_port = NULL;
+
+
+   // our main data storage vessel..
+   raspistill_state state;
+   int exit_code = ex_ok;
+
+   mmal_status_t status = mmal_success;
+   mmal_port_t *camera_preview_port = null;
+   mmal_port_t *camera_video_port = null;
+   mmal_port_t *camera_still_port = null;
+   mmal_port_t *preview_input_port = null;
+   mmal_port_t *encoder_input_port = null;
+   mmal_port_t *encoder_output_port = null;
 
    bcm_host_init();
 
-   // Register our application with the logging system
-   vcos_log_register("RaspiStill", VCOS_LOG_CATEGORY);
+   // register our application with the logging system
+   vcos_log_register("raspistill", vcos_log_category);
 
-   signal(SIGINT, signal_handler);
+   signal(sigint, signal_handler);
 
-   // Disable USR1 for the moment - may be reenabled if go in to signal capture mode
-   signal(SIGUSR1, SIG_IGN);
+   // disable usr1 for the moment - may be reenabled if go in to signal capture mode
+   signal(sigusr1, sig_ign);
 
    default_status(&state);
 
-   // Do we have any parameters
+   // do we have any parameters
    if (argc == 1)
    {
-      fprintf(stderr, "\%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
+      fprintf(stderr, "\%s camera app %s\n\n", basename(argv[0]), version_string);
 
       display_valid_parameters(basename(argv[0]));
-      exit(EX_USAGE);
+      exit(ex_usage);
    }
 
-   // Parse the command line and put options in to our status structure
+   // parse the command line and put options in to our status structure
    if (parse_cmdline(argc, argv, &state))
    {
-      exit(EX_USAGE);
+      exit(ex_usage);
    }
 
    if (state.verbose)
    {
-      fprintf(stderr, "\n%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
+      fprintf(stderr, "\n%s camera app %s\n\n", basename(argv[0]), version_string);
 
       dump_status(&state);
    }
 
-   if (state.useGL)
+   if (state.usegl)
       raspitex_init(&state.raspitex_state);
 
-   // OK, we have a nice set of parameters. Now set up our components
-   // We have three components. Camera, Preview and encoder.
-   // Camera and encoder are different in stills/video, but preview
+   // ok, we have a nice set of parameters. now set up our components
+   // we have three components. camera, preview and encoder.
+   // camera and encoder are different in stills/video, but preview
    // is the same so handed off to a separate module
 
-   if ((status = create_camera_component(&state)) != MMAL_SUCCESS)
+   if ((status = create_camera_component(&state)) != mmal_success)
    {
-      vcos_log_error("%s: Failed to create camera component", __func__);
-      exit_code = EX_SOFTWARE;
+      vcos_log_error("%s: failed to create camera component", __func__);
+      exit_code = ex_software;
    }
-   else if ((!state.useGL) && (status = raspipreview_create(&state.preview_parameters)) != MMAL_SUCCESS)
+   else if ((!state.usegl) && (status = raspipreview_create(&state.preview_parameters)) != mmal_success)
    {
-      vcos_log_error("%s: Failed to create preview component", __func__);
+      vcos_log_error("%s: failed to create preview component", __func__);
       destroy_camera_component(&state);
-      exit_code = EX_SOFTWARE;
+      exit_code = ex_software;
    }
-   else if ((status = create_encoder_component(&state)) != MMAL_SUCCESS)
+   else if ((status = create_encoder_component(&state)) != mmal_success)
    {
-      vcos_log_error("%s: Failed to create encode component", __func__);
+      vcos_log_error("%s: failed to create encode component", __func__);
       raspipreview_destroy(&state.preview_parameters);
       destroy_camera_component(&state);
-      exit_code = EX_SOFTWARE;
+      exit_code = ex_software;
    }
    else
    {
-      PORT_USERDATA callback_data;
+      port_userdata callback_data;
 
       if (state.verbose)
-         fprintf(stderr, "Starting component connection stage\n");
+         fprintf(stderr, "starting component connection stage\n");
 
-      camera_preview_port = state.camera_component->output[MMAL_CAMERA_PREVIEW_PORT];
-      camera_video_port   = state.camera_component->output[MMAL_CAMERA_VIDEO_PORT];
-      camera_still_port   = state.camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
+      camera_preview_port = state.camera_component->output[mmal_camera_preview_port];
+      camera_video_port   = state.camera_component->output[mmal_camera_video_port];
+      camera_still_port   = state.camera_component->output[mmal_camera_capture_port];
       encoder_input_port  = state.encoder_component->input[0];
       encoder_output_port = state.encoder_component->output[0];
 
-      if (! state.useGL)
+      if (! state.usegl)
       {
          if (state.verbose)
-            fprintf(stderr, "Connecting camera preview port to video render.\n");
+            fprintf(stderr, "connecting camera preview port to video render.\n");
 
-         // Note we are lucky that the preview and null sink components use the same input port
+         // note we are lucky that the preview and null sink components use the same input port
          // so we can simple do this without conditionals
          preview_input_port  = state.preview_parameters.preview_component->input[0];
 
-         // Connect camera to preview (which might be a null_sink if no preview required)
+         // connect camera to preview (which might be a null_sink if no preview required)
          status = connect_ports(camera_preview_port, preview_input_port, &state.preview_connection);
       }
 
-      if (status == MMAL_SUCCESS)
+      if (status == mmal_success)
       {
-         VCOS_STATUS_T vcos_status;
+         vcos_status_t vcos_status;
 
          if (state.verbose)
-            fprintf(stderr, "Connecting camera stills port to encoder input port\n");
+            fprintf(stderr, "connecting camera stills port to encoder input port\n");
 
-         // Now connect the camera to the encoder
+         // now connect the camera to the encoder
          status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
 
-         if (status != MMAL_SUCCESS)
+         if (status != mmal_success)
          {
-            vcos_log_error("%s: Failed to connect camera video port to encoder input", __func__);
+            vcos_log_error("%s: failed to connect camera video port to encoder input", __func__);
             goto error;
          }
 
-         // Set up our userdata - this is passed though to the callback where we need the information.
-         // Null until we open our filename
-         callback_data.file_handle = NULL;
+         // set up our userdata - this is passed though to the callback where we need the information.
+         // null until we open our filename
+         callback_data.file_handle = null;
          callback_data.pstate = &state;
-         vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "RaspiStill-sem", 0);
+         vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "raspistill-sem", 0);
 
-         vcos_assert(vcos_status == VCOS_SUCCESS);
+         vcos_assert(vcos_status == vcos_success);
 
-         /* If GL preview is requested then start the GL threads */
-         if (state.useGL && (raspitex_start(&state.raspitex_state) != 0))
+         /* if gl preview is requested then start the gl threads */
+         if (state.usegl && (raspitex_start(&state.raspitex_state) != 0))
             goto error;
 
-         if (status != MMAL_SUCCESS)
+         if (status != mmal_success)
          {
-            vcos_log_error("Failed to setup encoder output");
+            vcos_log_error("failed to setup encoder output");
             goto error;
          }
 
-         if (state.demoMode)
+         if (state.demomode)
          {
-            // Run for the user specific time..
-            int num_iterations = state.timeout / state.demoInterval;
+            // run for the user specific time..
+            int num_iterations = state.timeout / state.demointerval;
             int i;
             for (i=0;i<num_iterations;i++)
             {
                raspicamcontrol_cycle_test(state.camera_component);
-               vcos_sleep(state.demoInterval);
+               vcos_sleep(state.demointerval);
             }
          }
          else
          {
             int frame, keep_looping = 1;
-            FILE *output_file = NULL;
-            char *use_filename = NULL;      // Temporary filename while image being written
-            char *final_filename = NULL;    // Name that file gets once writing complete
+            file *output_file = null;
+            char *use_filename = null;      // temporary filename while image being written
+            char *final_filename = null;    // name that file gets once writing complete
 
             frame = 0;
 
             while (keep_looping)
             {
-            	keep_looping = wait_for_next_frame(&state, &frame);
+               keep_looping = wait_for_next_frame(&state, &frame);
 
                 if (state.datetime)
                 {
@@ -1820,132 +2009,132 @@ int main(int argc, const char **argv)
                 }
                 if (state.timestamp)
                 {
-                   frame = (int)time(NULL);
+                   frame = (int)time(null);
                 }
 
-               // Open the file
+               // open the file
                if (state.filename)
                {
                   if (state.filename[0] == '-')
                   {
                      output_file = stdout;
 
-                     // Ensure we don't upset the output stream with diagnostics/info
+                     // ensure we don't upset the output stream with diagnostics/info
                      state.verbose = 0;
                   }
                   else
                   {
-                     vcos_assert(use_filename == NULL && final_filename == NULL);
+                     vcos_assert(use_filename == null && final_filename == null);
                      status = create_filenames(&final_filename, &use_filename, state.filename, frame);
-                     if (status  != MMAL_SUCCESS)
+                     if (status  != mmal_success)
                      {
-                        vcos_log_error("Unable to create filenames");
+                        vcos_log_error("unable to create filenames");
                         goto error;
                      }
 
                      if (state.verbose)
-                        fprintf(stderr, "Opening output file %s\n", final_filename);
-                        // Technically it is opening the temp~ filename which will be ranamed to the final filename
+                        fprintf(stderr, "opening output file %s\n", final_filename);
+                        // technically it is opening the temp~ filename which will be ranamed to the final filename
 
                      output_file = fopen(use_filename, "wb");
 
                      if (!output_file)
                      {
-                        // Notify user, carry on but discarding encoded output buffers
-                        vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, use_filename);
+                        // notify user, carry on but discarding encoded output buffers
+                        vcos_log_error("%s: error opening output file: %s\nno output file will be generated\n", __func__, use_filename);
                      }
                   }
 
                   callback_data.file_handle = output_file;
                }
 
-               // We only capture if a filename was specified and it opened
-               if (state.useGL && state.glCapture && output_file)
+               // we only capture if a filename was specified and it opened
+               if (state.usegl && state.glcapture && output_file)
                {
-                  /* Save the next GL framebuffer as the next camera still */
+                  /* save the next gl framebuffer as the next camera still */
                   int rc = raspitex_capture(&state.raspitex_state, output_file);
                   if (rc != 0)
-                     vcos_log_error("Failed to capture GL preview");
+                     vcos_log_error("failed to capture gl preview");
                   rename_file(&state, output_file, final_filename, use_filename, frame);
                }
                else if (output_file)
                {
                   int num, q;
 
-                  // Must do this before the encoder output port is enabled since
+                  // must do this before the encoder output port is enabled since
                   // once enabled no further exif data is accepted
-                  if ( state.enableExifTags )
+                  if ( state.enableexiftags )
                   {
                      add_exif_tags(&state);
                   }
                   else
                   {
                      mmal_port_parameter_set_boolean(
-                        state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
+                        state.encoder_component->output[0], mmal_parameter_exif_disable, 1);
                   }
 
-                  // Same with raw, apparently need to set it for each capture, whilst port
+                  // same with raw, apparently need to set it for each capture, whilst port
                   // is not enabled
-                  if (state.wantRAW)
+                  if (state.wantraw)
                   {
-                     if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_ENABLE_RAW_CAPTURE, 1) != MMAL_SUCCESS)
+                     if (mmal_port_parameter_set_boolean(camera_still_port, mmal_parameter_enable_raw_capture, 1) != mmal_success)
                      {
-                        vcos_log_error("RAW was requested, but failed to enable");
+                        vcos_log_error("raw was requested, but failed to enable");
                      }
                   }
 
-                  // There is a possibility that shutter needs to be set each loop.
-                  if (mmal_status_to_int(mmal_port_parameter_set_uint32(state.camera_component->control, MMAL_PARAMETER_SHUTTER_SPEED, state.camera_parameters.shutter_speed) != MMAL_SUCCESS))
-                     vcos_log_error("Unable to set shutter speed");
+                  // there is a possibility that shutter needs to be set each loop.
+                  if (mmal_status_to_int(mmal_port_parameter_set_uint32(state.camera_component->control, mmal_parameter_shutter_speed, state.camera_parameters.shutter_speed) != mmal_success))
+                     vcos_log_error("unable to set shutter speed");
 
 
-                  // Enable the encoder output port
-                  encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
+                  // enable the encoder output port
+                  encoder_output_port->userdata = (struct mmal_port_userdata_t *)&callback_data;
 
                   if (state.verbose)
-                     fprintf(stderr, "Enabling encoder output port\n");
+                     fprintf(stderr, "enabling encoder output port\n");
 
-                  // Enable the encoder output port and tell it its callback function
+                  // enable the encoder output port and tell it its callback function
                   status = mmal_port_enable(encoder_output_port, encoder_buffer_callback);
 
-                  // Send all the buffers to the encoder output port
+                  // send all the buffers to the encoder output port
                   num = mmal_queue_length(state.encoder_pool->queue);
 
                   for (q=0;q<num;q++)
                   {
-                     MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
+                     mmal_buffer_header_t *buffer = mmal_queue_get(state.encoder_pool->queue);
 
                      if (!buffer)
-                        vcos_log_error("Unable to get a required buffer %d from pool queue", q);
+                        vcos_log_error("unable to get a required buffer %d from pool queue", q);
 
-                     if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
-                        vcos_log_error("Unable to send a buffer to encoder output port (%d)", q);
+                     if (mmal_port_send_buffer(encoder_output_port, buffer)!= mmal_success)
+                        vcos_log_error("unable to send a buffer to encoder output port (%d)", q);
                   }
 
-                  if (state.burstCaptureMode && frame==1)
+                  if (state.burstcapturemode && frame==1)
                   {
-                     mmal_port_parameter_set_boolean(state.camera_component->control,  MMAL_PARAMETER_CAMERA_BURST_CAPTURE, 1);
+                     mmal_port_parameter_set_boolean(state.camera_component->control,  mmal_parameter_camera_burst_capture, 1);
                   }
 
                   if (state.verbose)
-                     fprintf(stderr, "Starting capture %d\n", frame);
+                     fprintf(stderr, "starting capture %d\n", frame);
 
-                  if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1) != MMAL_SUCCESS)
+                  if (mmal_port_parameter_set_boolean(camera_still_port, mmal_parameter_capture, 1) != mmal_success)
                   {
-                     vcos_log_error("%s: Failed to start capture", __func__);
+                     vcos_log_error("%s: failed to start capture", __func__);
                   }
                   else
                   {
-                     // Wait for capture to complete
-                     // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
+                     // wait for capture to complete
+                     // for some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
                      // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
                      vcos_semaphore_wait(&callback_data.complete_semaphore);
                      if (state.verbose)
-                        fprintf(stderr, "Finished capture %d\n", frame);
+                        fprintf(stderr, "finished capture %d\n", frame);
                   }
 
-                  // Ensure we don't die if get callback with no open file
-                  callback_data.file_handle = NULL;
+                  // ensure we don't die if get callback with no open file
+                  callback_data.file_handle = null;
 
                   if (output_file != stdout)
                   {
@@ -1955,19 +2144,19 @@ int main(int argc, const char **argv)
                   {
                      fflush(output_file);
                   }
-                  // Disable encoder output port
+                  // disable encoder output port
                   status = mmal_port_disable(encoder_output_port);
                }
 
                if (use_filename)
                {
                   free(use_filename);
-                  use_filename = NULL;
+                  use_filename = null;
                }
                if (final_filename)
                {
                   free(final_filename);
-                  final_filename = NULL;
+                  final_filename = null;
                }
             } // end for (frame)
 
@@ -1977,7 +2166,7 @@ int main(int argc, const char **argv)
       else
       {
          mmal_status_to_int(status);
-         vcos_log_error("%s: Failed to connect camera to preview", __func__);
+         vcos_log_error("%s: failed to connect camera to preview", __func__);
       }
 
 error:
@@ -1985,15 +2174,15 @@ error:
       mmal_status_to_int(status);
 
       if (state.verbose)
-         fprintf(stderr, "Closing down\n");
+         fprintf(stderr, "closing down\n");
 
-      if (state.useGL)
+      if (state.usegl)
       {
          raspitex_stop(&state.raspitex_state);
          raspitex_destroy(&state.raspitex_state);
       }
 
-      // Disable all our ports that are not handled by connections
+      // disable all our ports that are not handled by connections
       check_disable_port(camera_video_port);
       check_disable_port(encoder_output_port);
 
@@ -2004,7 +2193,7 @@ error:
          mmal_connection_destroy(state.encoder_connection);
 
 
-      /* Disable components */
+      /* disable components */
       if (state.encoder_component)
          mmal_component_disable(state.encoder_component);
 
@@ -2019,7 +2208,7 @@ error:
       destroy_camera_component(&state);
 
       if (state.verbose)
-         fprintf(stderr, "Close down completed, all components disconnected, disabled and destroyed\n\n");
+         fprintf(stderr, "close down completed, all components disconnected, disabled and destroyed\n\n");
    }
 
    if (status != MMAL_SUCCESS)
