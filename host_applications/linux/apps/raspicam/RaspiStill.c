@@ -1702,14 +1702,15 @@ static void rename_file(RASPISTILL_STATE *state, FILE *output_file,
    }
 }
 
-void* gps_update(struct gps_info* sharedData)
+void* gps_update(void* sharedData_void)
 {
+   struct gps_info* sharedData = (struct gps_info*) sharedData_void;
    char buffer[500];
    char line_buffer[100];
    int in_buffer = 0;
    while(1)
    {
-      int read_bytes=read(sharedData.serial,(buffer+in_buffer),sizeof(buffer)-in_buffer);
+      int read_bytes=read(sharedData->serial,(buffer+in_buffer),sizeof(buffer)-in_buffer);
       in_buffer += read_bytes;
       int start_line = 0;
       int i;
@@ -1726,7 +1727,7 @@ void* gps_update(struct gps_info* sharedData)
                case MINMEA_SENTENCE_RMC:
                {
                   struct minmea_sentence_rmc frame;
-                  if (minmea_parse_rmc(&frame, line))
+                  if (minmea_parse_rmc(&frame, line_buffer))
                   {
 
                      struct coordinate latitude;
@@ -1759,17 +1760,17 @@ void* gps_update(struct gps_info* sharedData)
                      longitude.min_scale = frame.longitude.scale;
 
 
-                     sharedData.latitude = latitude;
-                     sharedData.longitude = longitude;
-                     sharedData.speed = frame.speed;
-                     sharedData.course = frame.course;
+                     sharedData->latitude = latitude;
+                     sharedData->longitude = longitude;
+                     sharedData->speed = frame.speed;
+                     sharedData->course = frame.course;
                      
                   }
                } break;
                case MINMEA_SENTENCE_GGA:
                {
                   struct minmea_sentence_gga frame;
-                  if (minmea_parse_gga(&frame, line))
+                  if (minmea_parse_gga(&frame, line_buffer))
                   {
                      struct coordinate latitude;
                      if (frame.latitude.value > 0)
@@ -1799,10 +1800,10 @@ void* gps_update(struct gps_info* sharedData)
                      longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
                      longitude.min_scale = frame.longitude.scale;
 
-                     sharedData.latitude = latitude;
-                     sharedData.longitude = longitude;
+                     sharedData->latitude = latitude;
+                     sharedData->longitude = longitude;
 
-                     sharedData.altitude = frame.altitude;
+                     sharedData->altitude = frame.altitude;
 
                   }
                } break;
