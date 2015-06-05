@@ -132,6 +132,7 @@ struct coordinate
 struct gps_info
 {
    int serial;
+   bool initialized;
    struct coordinate latitude;
    struct coordinate longitude;
    struct minmea_float speed;
@@ -1346,6 +1347,7 @@ static void add_exif_tags(RASPISTILL_STATE *state)
    add_exif_tag(state, exif_buf);
 
 
+
    snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitude=%d/1,%d/%d,0/1000", nav_data.latitude.deg,nav_data.latitude.min_scaled,nav_data.latitude.min_scale);
    add_exif_tag(state, exif_buf);
 
@@ -1359,10 +1361,10 @@ static void add_exif_tags(RASPISTILL_STATE *state)
    snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitude=%d/1,%d/%d,0/1000", nav_data.longitude.deg,nav_data.longitude.min_scaled,nav_data.longitude.min_scale);
    add_exif_tag(state, exif_buf);
 
-   if (nav_data.longitude.ref == north)
-      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=N");
-   if (nav_data.longitude.ref == south)
-      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=S");
+   if (nav_data.longitude.ref == west)
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=W");
+   if (nav_data.longitude.ref == east)
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=E");
    add_exif_tag(state, exif_buf);
 
    snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSAltitude=%d/%d",nav_data.altitude.value,nav_data.altitude.scale);
@@ -1705,8 +1707,8 @@ static void rename_file(RASPISTILL_STATE *state, FILE *output_file,
 void* gps_update(void* sharedData_void)
 {
    struct gps_info* sharedData = (struct gps_info*) sharedData_void;
-   char buffer[500];
-   char line_buffer[100];
+   char buffer[5000];
+   char line_buffer[500];
    int in_buffer = 0;
    while(1)
    {
@@ -1727,9 +1729,10 @@ void* gps_update(void* sharedData_void)
                case MINMEA_SENTENCE_RMC:
                {
                   struct minmea_sentence_rmc frame;
-                  if (minmea_parse_rmc(&frame, line_buffer))
+                  if (minmea_parse_rmc(&frame, line_buffer) && frame.valid)
                   {
 
+					 sharedData->initialized = true;
                      struct coordinate latitude;
                      if (frame.latitude.value > 0)
                      {
@@ -1755,6 +1758,7 @@ void* gps_update(void* sharedData_void)
                         frame.longitude.value *= -1;
                         longitude.ref = west;
                      }
+					 
                      longitude.deg = frame.longitude.value / (frame.longitude.scale * 100);
                      longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
                      longitude.min_scale = frame.longitude.scale;
@@ -1770,8 +1774,9 @@ void* gps_update(void* sharedData_void)
                case MINMEA_SENTENCE_GGA:
                {
                   struct minmea_sentence_gga frame;
-                  if (minmea_parse_gga(&frame, line_buffer))
+                  if (minmea_parse_gga(&frame, line_buffer) && frame.fix_quality > 0)
                   {
+					 sharedData->initialized = true;
                      struct coordinate latitude;
                      if (frame.latitude.value > 0)
                      {
@@ -1836,8 +1841,13 @@ int main(int argc, const char **argv)
       exit(EX_USAGE);
    }
    nav_data.serial=serial_ret;
+   nav_data.initialized = false;
    pthread_t gps_sync;
    pthread_create(&gps_sync, NULL, gps_update, &nav_data);
+   while (nav_data.initialized == false)
+   {
+		usleep(100000);
+   }
 
    // Our main data storage vessel..
    RASPISTILL_STATE state;
