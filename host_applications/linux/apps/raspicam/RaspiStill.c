@@ -1829,7 +1829,7 @@ int main(int argc, const char **argv)
 
 
 
-   int serial_ret = serialopen("/dev/ttyama0",9600);
+   int serial_ret = serialOpen("/dev/ttyAMA0",19200);
    if (serial_ret < 0)
    {
       fprintf(stderr, "failed to init serial\n");
