@@ -1840,7 +1840,7 @@ void shutdown(void)
    system("shutdown -P now");
 }
 
-void flashLED(void* arg)
+void* flashLED(void* arg)
 {
    while(true)
    {
