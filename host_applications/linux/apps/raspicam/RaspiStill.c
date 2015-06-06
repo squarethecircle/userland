@@ -140,6 +140,7 @@ struct gps_info
    struct minmea_float altitude;
 } nav_data;
 
+bool shutdown_flag;
 
 /** Structure containing all state information for the current run
  */
@@ -1522,6 +1523,9 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
 
    int64_t current_time =  vcos_getmicrosecs64()/1000;
 
+   if (shutdown_flag)
+         system("shutdown -P now");
+      
    if (complete_time == -1)
       complete_time =  current_time + state->timeout;
 
@@ -1837,7 +1841,7 @@ void* gps_update(void* sharedData_void)
 
 void shutdown(void)
 {
-   system("shutdown -P now");
+   shutdown_flag = true;
 }
 
 void* flashLED(void* arg)
@@ -1855,7 +1859,7 @@ void* flashLED(void* arg)
  */
 int main(int argc, const char **argv)
 {
-
+   shutdown_flag = false;
    wiringPiSetup();
    pinMode(0,INPUT);
    pinMode(2,OUTPUT);
