@@ -1861,7 +1861,7 @@ int main(int argc, const char **argv)
    pinMode(2,OUTPUT);
    pthread_t startCamera;
    pthread_create(&startCamera, NULL, flashLED, NULL);
-   wiringPiISR(0,INT_EDGE_FALLING,shutdown);
+   wiringPiISR(0,INT_EDGE_RISING,shutdown);
 
    int serial_ret = serialOpen("/dev/ttyAMA0",19200);
    if (serial_ret < 0)
