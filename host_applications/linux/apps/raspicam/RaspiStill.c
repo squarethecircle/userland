@@ -77,7 +77,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "RaspiTex.h"
 #include "minmea.h"
 
-
+#include <wiringPi.h>
 #include <semaphore.h>
 #include <pthread.h>
 #include <wiringSerial.h>
@@ -225,6 +225,7 @@ static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag);
 #define CommandSensorMode   22
 #define CommandDateTime     23
 #define CommandTimeStamp    24
+#define CommandFast         25
 
 static COMMAND_LIST cmdline_commands[] =
 {
@@ -253,6 +254,8 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandSensorMode,"-mode",     "md", "Force sensor mode. 0=auto. See docs for other modes available", 1},
    { CommandDateTime,  "-datetime",  "dt", "Replace frame number in file name with DateTime (YearMonthDayHourMinSec)", 0},
    { CommandTimeStamp, "-timestamp", "ts", "Replace frame number in file name with unix timestamp (seconds since 1900)", 0},
+   { CommandFast, "-ff", "ff", "Take photos as fast as possible.", 0},
+
 };
 
 static int cmdline_commands_size = sizeof(cmdline_commands) / sizeof(cmdline_commands[0]);
@@ -628,6 +631,10 @@ static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
 
             i++;
          }
+         break;
+
+      case CommandFast:
+         state->frameNextMethod = FRAME_NEXT_IMMEDIATELY;
          break;
 
       case CommandFullResPreview:
@@ -1347,37 +1354,39 @@ static void add_exif_tags(RASPISTILL_STATE *state)
    add_exif_tag(state, exif_buf);
 
 
+   if (nav_data.initialized)
+   {
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitude=%d/1,%d/%d,0/1000", nav_data.latitude.deg,nav_data.latitude.min_scaled,nav_data.latitude.min_scale);
+      add_exif_tag(state, exif_buf);
 
-   snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitude=%d/1,%d/%d,0/1000", nav_data.latitude.deg,nav_data.latitude.min_scaled,nav_data.latitude.min_scale);
-   add_exif_tag(state, exif_buf);
-
-   if (nav_data.latitude.ref == north)
-      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=N");
-   if (nav_data.latitude.ref == south)
-      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=S");
-   add_exif_tag(state, exif_buf);
+      if (nav_data.latitude.ref == north)
+         snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=N");
+      if (nav_data.latitude.ref == south)
+         snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitudeRef=S");
+      add_exif_tag(state, exif_buf);
 
 
-   snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitude=%d/1,%d/%d,0/1000", nav_data.longitude.deg,nav_data.longitude.min_scaled,nav_data.longitude.min_scale);
-   add_exif_tag(state, exif_buf);
+      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitude=%d/1,%d/%d,0/1000", nav_data.longitude.deg,nav_data.longitude.min_scaled,nav_data.longitude.min_scale);
+      add_exif_tag(state, exif_buf);
 
-   if (nav_data.longitude.ref == west)
-      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=W");
-   if (nav_data.longitude.ref == east)
-      snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=E");
-   add_exif_tag(state, exif_buf);
+      if (nav_data.longitude.ref == west)
+         snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=W");
+      if (nav_data.longitude.ref == east)
+         snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLongitudeRef=E");
+      add_exif_tag(state, exif_buf);
 
-   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSAltitude=%d/%d",nav_data.altitude.value,nav_data.altitude.scale);
-   add_exif_tag(state, exif_buf);
+      snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSAltitude=%d/%d",nav_data.altitude.value,nav_data.altitude.scale);
+      add_exif_tag(state, exif_buf);
 
-   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSSpeed=%d/%d",nav_data.speed.value,nav_data.speed.scale);
-   add_exif_tag(state, exif_buf);
+      snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSSpeed=%d/%d",nav_data.speed.value,nav_data.speed.scale);
+      add_exif_tag(state, exif_buf);
 
-   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSTrack=%d/%d",nav_data.course.value,nav_data.course.scale);
-   add_exif_tag(state, exif_buf);
+      snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSTrack=%d/%d",nav_data.course.value,nav_data.course.scale);
+      add_exif_tag(state, exif_buf);
 
-   snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSImgDirection=%d/%d",nav_data.course.value,nav_data.course.scale);
-   add_exif_tag(state, exif_buf);
+      snprintf(exif_buf,sizeof(exif_buf),"GPS.GPSImgDirection=%d/%d",nav_data.course.value,nav_data.course.scale);
+      add_exif_tag(state, exif_buf);
+   }
 
    // Now send any user supplied tags
 
@@ -1826,13 +1835,33 @@ void* gps_update(void* sharedData_void)
 
 }
 
+void shutdown(void)
+{
+   system("shutdown -P now");
+}
+
+void flashLED(void* arg)
+{
+   while(true)
+   {
+      digitalWrite (2, HIGH); delay (1000);
+      digitalWrite (2,  LOW); delay (1000);
+   }
+}
+
+
 /**
  * main
  */
 int main(int argc, const char **argv)
 {
 
-
+   wiringPiSetup();
+   pinMode(0,INPUT);
+   pinMode(2,OUTPUT);
+   pthread_t startCamera;
+   pthread_create(&startCamera, NULL, flashLED, NULL);
+   wiringPiISR(0,INT_EDGE_FALLING,shutdown);
 
    int serial_ret = serialOpen("/dev/ttyAMA0",19200);
    if (serial_ret < 0)
@@ -1844,10 +1873,7 @@ int main(int argc, const char **argv)
    nav_data.initialized = false;
    pthread_t gps_sync;
    pthread_create(&gps_sync, NULL, gps_update, &nav_data);
-   while (nav_data.initialized == false)
-   {
-		usleep(100000);
-   }
+
 
    // Our main data storage vessel..
    RASPISTILL_STATE state;
