@@ -1523,7 +1523,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
 
    int64_t current_time =  vcos_getmicrosecs64()/1000;
 
-   if (shutdown_flag)
+   if (shutdown_flag && digitalRead(0))
          system("shutdown -P now");
       
    if (complete_time == -1)
@@ -1839,9 +1839,10 @@ void* gps_update(void* sharedData_void)
 
 }
 
+
 void shutdown(void)
 {
-   shutdown_flag = true;
+	shutdown_flag = true;
 }
 
 void* flashLED(void* arg)
@@ -1866,6 +1867,7 @@ int main(int argc, const char **argv)
    pthread_t startCamera;
    pthread_create(&startCamera, NULL, flashLED, NULL);
    wiringPiISR(0,INT_EDGE_RISING,shutdown);
+   piHiPri(99);
 
    int serial_ret = serialOpen("/dev/ttyAMA0",19200);
    if (serial_ret < 0)
