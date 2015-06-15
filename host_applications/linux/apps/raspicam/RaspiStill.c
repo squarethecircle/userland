@@ -138,6 +138,7 @@ struct gps_info
    struct minmea_float speed;
    struct minmea_float course;
    struct minmea_float altitude;
+   struct minmea_time time;
 } nav_data;
 
 bool shutdown_flag;
@@ -1354,7 +1355,11 @@ static void add_exif_tags(RASPISTILL_STATE *state)
    snprintf(exif_buf, sizeof(exif_buf), "IFD0.DateTime=%s", time_buf);
    add_exif_tag(state, exif_buf);
 
-
+   if (nav_data.time.hours)
+   {
+    snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSTimeStamp=%d/1,%d/1,%d/1", nav_data.time.hours,nav_data.time.minutes,nav_data.time.seconds);
+      add_exif_tag(state, exif_buf);  
+   }
    if (nav_data.initialized)
    {
       snprintf(exif_buf, sizeof(exif_buf), "GPS.GPSLatitude=%d/1,%d/%d,0/1000", nav_data.latitude.deg,nav_data.latitude.min_scaled,nav_data.latitude.min_scale);
@@ -1742,87 +1747,94 @@ void* gps_update(void* sharedData_void)
                case MINMEA_SENTENCE_RMC:
                {
                   struct minmea_sentence_rmc frame;
-                  if (minmea_parse_rmc(&frame, line_buffer) && frame.valid)
+                  if (minmea_parse_rmc(&frame, line_buffer))
                   {
-
-					 sharedData->initialized = true;
-                     struct coordinate latitude;
-                     if (frame.latitude.value > 0)
+                     sharedData->time = frame.time;
+                     if (frame.valid)
                      {
-                        latitude.ref = north;
-                     }
-                     else
-                     {
-                        frame.latitude.value *= -1;
-                        latitude.ref = south;
-                     }
-                     latitude.deg = frame.latitude.value / (frame.latitude.scale * 100);
-                     latitude.min_scaled = frame.latitude.value % (frame.latitude.scale * 100);
-                     latitude.min_scale = frame.latitude.scale;
+   					      sharedData->initialized = true;
+                        struct coordinate latitude;
+                        if (frame.latitude.value > 0)
+                        {
+                           latitude.ref = north;
+                        }
+                        else
+                        {
+                           frame.latitude.value *= -1;
+                           latitude.ref = south;
+                        }
+                        latitude.deg = frame.latitude.value / (frame.latitude.scale * 100);
+                        latitude.min_scaled = frame.latitude.value % (frame.latitude.scale * 100);
+                        latitude.min_scale = frame.latitude.scale;
 
 
-                     struct coordinate longitude;
-                     if (frame.longitude.value > 0)
-                     {
-                        longitude.ref = east;
-                     }
-                     else
-                     {
-                        frame.longitude.value *= -1;
-                        longitude.ref = west;
-                     }
-					 
-                     longitude.deg = frame.longitude.value / (frame.longitude.scale * 100);
-                     longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
-                     longitude.min_scale = frame.longitude.scale;
+                        struct coordinate longitude;
+                        if (frame.longitude.value > 0)
+                        {
+                           longitude.ref = east;
+                        }
+                        else
+                        {
+                           frame.longitude.value *= -1;
+                           longitude.ref = west;
+                        }
+   					 
+                        longitude.deg = frame.longitude.value / (frame.longitude.scale * 100);
+                        longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
+                        longitude.min_scale = frame.longitude.scale;
 
 
-                     sharedData->latitude = latitude;
-                     sharedData->longitude = longitude;
-                     sharedData->speed = frame.speed;
-                     sharedData->course = frame.course;
-                     
+                        sharedData->latitude = latitude;
+                        sharedData->longitude = longitude;
+                        sharedData->speed = frame.speed;
+                        sharedData->course = frame.course;
+                     }
                   }
                } break;
                case MINMEA_SENTENCE_GGA:
                {
                   struct minmea_sentence_gga frame;
-                  if (minmea_parse_gga(&frame, line_buffer) && frame.fix_quality > 0)
+                  if (minmea_parse_gga(&frame, line_buffer))
                   {
-					 sharedData->initialized = true;
-                     struct coordinate latitude;
-                     if (frame.latitude.value > 0)
+                     sharedData->time = frame.time;
+                     if (frame.fix_quality > 0)
                      {
-                        latitude.ref = north;
-                     }
-                     else
-                     {
-                        frame.latitude.value *= -1;
-                        latitude.ref = south;
-                     }
-                     latitude.deg = frame.latitude.value / (frame.latitude.scale * 100);
-                     latitude.min_scaled = frame.latitude.value % (frame.latitude.scale * 100);
-                     latitude.min_scale = frame.latitude.scale;
 
-                     struct coordinate longitude;
-                     if (frame.longitude.value > 0)
-                     {
-                        longitude.ref = east;
+                        sharedData->initialized = true;
+                        struct coordinate latitude;
+                        if (frame.latitude.value > 0)
+                        {
+                           latitude.ref = north;
+                        }
+                        else
+                        {
+                           frame.latitude.value *= -1;
+                           latitude.ref = south;
+                        }
+                        latitude.deg = frame.latitude.value / (frame.latitude.scale * 100);
+                        latitude.min_scaled = frame.latitude.value % (frame.latitude.scale * 100);
+                        latitude.min_scale = frame.latitude.scale;
+
+                        struct coordinate longitude;
+                        if (frame.longitude.value > 0)
+                        {
+                           longitude.ref = east;
+                        }
+                        else
+                        {
+                           frame.longitude.value *= -1;
+                           longitude.ref = west;
+                        }
+                        longitude.deg = frame.longitude.value / (frame.longitude.scale * 100);
+                        longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
+                        longitude.min_scale = frame.longitude.scale;
+
+                        sharedData->latitude = latitude;
+                        sharedData->longitude = longitude;
+                        sharedData->time = frame.time;
+
+                        sharedData->altitude = frame.altitude;
                      }
-                     else
-                     {
-                        frame.longitude.value *= -1;
-                        longitude.ref = west;
-                     }
-                     longitude.deg = frame.longitude.value / (frame.longitude.scale * 100);
-                     longitude.min_scaled = frame.longitude.value % (frame.longitude.scale * 100);
-                     longitude.min_scale = frame.longitude.scale;
-
-                     sharedData->latitude = latitude;
-                     sharedData->longitude = longitude;
-
-                     sharedData->altitude = frame.altitude;
-
                   }
                } break;
             }
@@ -1842,6 +1854,7 @@ void* gps_update(void* sharedData_void)
 
 void shutdown(void)
 {
+   digitalWrite (2, HIGH);
 	shutdown_flag = true;
 }
 
@@ -1877,6 +1890,7 @@ int main(int argc, const char **argv)
    }
    nav_data.serial=serial_ret;
    nav_data.initialized = false;
+   nav_data.time.hours = 0;
    pthread_t gps_sync;
    pthread_create(&gps_sync, NULL, gps_update, &nav_data);
 
