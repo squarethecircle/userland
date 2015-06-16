@@ -1885,7 +1885,7 @@ int main(int argc, const char **argv)
    wiringPiISR(SHUTDOWN_PIN,INT_EDGE_RISING,shutdown);
    piHiPri(99);
 
-   int serial_ret = serialOpen("/dev/ttyAMA0",19200);
+   int serial_ret = serialOpen("/dev/ttyAMA0",57600);
    if (serial_ret < 0)
    {
       fprintf(stderr, "failed to init serial\n");
