@@ -1875,11 +1875,12 @@ int main(int argc, const char **argv)
 {
    shutdown_flag = false;
    wiringPiSetup();
-   pinMode(0,INPUT);
+   pinMode(3,INPUT);
+   pullUpDnControl(3,PUD_UP);
    pinMode(2,OUTPUT);
    pthread_t startCamera;
    pthread_create(&startCamera, NULL, flashLED, NULL);
-   wiringPiISR(0,INT_EDGE_RISING,shutdown);
+   wiringPiISR(3,INT_EDGE_RISING,shutdown);
    piHiPri(99);
 
    int serial_ret = serialOpen("/dev/ttyAMA0",19200);
