@@ -1491,14 +1491,10 @@ MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern
       return MMAL_ENOMEM;    // It may be some other error, but it is not worth getting it right
    }
    free(*tempName);
-   puts(*finalName);
    char* finalNameBase = basename(*finalName);
-   puts(*finalName);
    char* toFreeFinal = *finalName;
    asprintf(finalName,"/dev/shm/raspiphotos/%s",finalNameBase);
    asprintf(tempName, "%s~",*finalName);
-   puts(*finalName);
-   puts(*tempName);
    free(toFreeFinal);
    return MMAL_SUCCESS;
 }
