@@ -858,7 +858,7 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
       if (bytes_written != buffer->length)
       {
          vcos_log_error("Unable to write buffer to file - aborting");
-         complete = 1;
+         //complete = 1;
       }
 
       // Now flag if we have completed
@@ -1664,7 +1664,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       if (*frame == 0)
          vcos_sleep(1000);
       else
-         vcos_sleep(30);
+         vcos_sleep(700);
 
       *frame+=1;
 
@@ -1910,6 +1910,7 @@ void* ramdisk(void* arg)
 		  strcat(cmd_string, output_dirname);
 		  strcat(cmd_string, "/");
 		  system(cmd_string);
+		  free(cmd_string);
 		  ramdisk_ready_to_shutdown = true;
 		}
    }
