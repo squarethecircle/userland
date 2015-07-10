@@ -508,7 +508,7 @@ static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
             if (state->filename)
                strncpy(state->filename, argv[i + 1], len+1);
             i++;
-            char* temp_output_dirname = dirname(*(state->filename));
+            char* temp_output_dirname = dirname(state->filename);
             output_dirname = malloc(strlen(temp_output_dirname)+1);
             strcpy(output_dirname,temp_output_dirname);
 
