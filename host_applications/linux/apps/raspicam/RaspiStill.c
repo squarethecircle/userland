@@ -508,7 +508,10 @@ static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
             if (state->filename)
                strncpy(state->filename, argv[i + 1], len+1);
             i++;
-            output_dirname = dirname(*(state->filename));
+            char* temp_output_dirname = dirname(*(state->filename));
+            output_dirname = malloc(strlen(temp_output_dirname)+1);
+            strcpy(output_dirname,temp_output_dirname);
+
          }
          else
             valid = 0;
@@ -1486,8 +1489,8 @@ MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern
       return MMAL_ENOMEM;    // It may be some other error, but it is not worth getting it right
    }
    char* finalNameBase = basename(finalName);
-   free(finalName);
-   free(tempName);
+   free(*finalName);
+   free(*tempName);
    asprintf(finalName,"/dev/shm/raspiphotos/%s",finalNameBase);
    asprintf(tempName, "%s~",*finalName);
    return MMAL_SUCCESS;
@@ -1889,7 +1892,7 @@ void* flashLED(void* arg)
 
 void* ramdisk(void* arg)
 {
-   while(!shutdown_flag)
+   while(!shutdown_flag && output_dirname != NULL)
    {
       vcos_sleep(1000000);
       ramdisk_ready_to_shutdown = false;
