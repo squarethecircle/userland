@@ -1905,7 +1905,7 @@ void* ramdisk(void* arg)
 	  if (output_dirname != NULL)
 	   {
 		  ramdisk_ready_to_shutdown = false;
-		  char* cmd_string = malloc(strlen(output_dirname) + 30);
+		  char* cmd_string = malloc(strlen(output_dirname) + 35);
 		  strcpy(cmd_string, "mv /dev/shm/raspiphotos/*.jpg ");
 		  strcat(cmd_string, output_dirname);
 		  strcat(cmd_string, "/");
