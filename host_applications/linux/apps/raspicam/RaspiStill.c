@@ -88,6 +88,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define MMAL_CAMERA_VIDEO_PORT 1
 #define MMAL_CAMERA_CAPTURE_PORT 2
 
+#define SHUTDOWN_PIN 3
+#define LED_PIN 2
 
 // Stills format information
 // 0 implies variable
@@ -1539,12 +1541,13 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
 
    int64_t current_time =  vcos_getmicrosecs64()/1000;
 
-   if (shutdown_flag && digitalRead(0))
+   if (shutdown_flag && digitalRead(SHUTDOWN_PIN))
    {
          while (!ramdisk_ready_to_shutdown)
          {
           vcos_sleep(10000);  
          }
+
          system("shutdown -P now");
    }
       
@@ -1871,7 +1874,7 @@ void* gps_update(void* sharedData_void)
 
 void shutdown(void)
 {
-   digitalWrite (2, HIGH);
+   digitalWrite (LED_PIN, HIGH);
 	shutdown_flag = true;
 }
 
@@ -1879,8 +1882,8 @@ void* flashLED(void* arg)
 {
    while(true)
    {
-      digitalWrite (2, HIGH); delay (1000);
-      digitalWrite (2,  LOW); delay (1000);
+      digitalWrite (LED_PIN, HIGH); delay (1000);
+      digitalWrite (LED_PIN,  LOW); delay (1000);
    }
 }
 
@@ -1907,16 +1910,17 @@ int main(int argc, const char **argv)
    shutdown_flag = false;
    ramdisk_ready_to_shutdown = true;
    wiringPiSetup();
-   pinMode(0,INPUT);
-   pinMode(2,OUTPUT);
+   pinMode(SHUTDOWN_PIN,INPUT);
+   pullUpDnControl(SHUTDOWN_PIN,PUD_UP);
+   pinMode(LED_PIN,OUTPUT);
    pthread_t startCamera;
    pthread_create(&startCamera, NULL, flashLED, NULL);
    pthread_t copyPhotos;
    pthread_create(&copyPhotos, NULL, ramdisk, NULL);
-   wiringPiISR(0,INT_EDGE_RISING,shutdown);
+   wiringPiISR(SHUTDOWN_PIN,INT_EDGE_RISING,shutdown);
    piHiPri(99);
 
-   int serial_ret = serialOpen("/dev/ttyAMA0",19200);
+   int serial_ret = serialOpen("/dev/ttyAMA0",57600);
    if (serial_ret < 0)
    {
       fprintf(stderr, "failed to init serial\n");
