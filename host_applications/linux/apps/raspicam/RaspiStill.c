@@ -143,6 +143,10 @@ struct gps_info
 
 bool shutdown_flag;
 
+bool ramdisk_ready_to_shutdown;
+
+char* output_dirname = NULL;
+
 /** Structure containing all state information for the current run
  */
 typedef struct
@@ -502,6 +506,7 @@ static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
             if (state->filename)
                strncpy(state->filename, argv[i + 1], len+1);
             i++;
+            output_dirname = dirname(state->filename);
          }
          else
             valid = 0;
@@ -1468,6 +1473,7 @@ MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern
 {
    *finalName = NULL;
    *tempName = NULL;
+
    if (0 > asprintf(finalName, pattern, frame) ||
        0 > asprintf(tempName, "%s~", *finalName))
    {
@@ -1477,6 +1483,11 @@ MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern
       }
       return MMAL_ENOMEM;    // It may be some other error, but it is not worth getting it right
    }
+   char* finalNameBase = basename(finalName);
+   free(finalName);
+   free(tempName);
+   asprintf(finalName,"/dev/shm/raspiphotos/%s",finalNameBase);
+   asprintf(tempName, "%s~",*finalName);
    return MMAL_SUCCESS;
 }
 
@@ -1529,7 +1540,13 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
    int64_t current_time =  vcos_getmicrosecs64()/1000;
 
    if (shutdown_flag && digitalRead(0))
+   {
+         while (!ramdisk_ready_to_shutdown)
+         {
+          vcos_sleep(10000);  
+         }
          system("shutdown -P now");
+   }
       
    if (complete_time == -1)
       complete_time =  current_time + state->timeout;
@@ -1867,18 +1884,35 @@ void* flashLED(void* arg)
    }
 }
 
-
+void* ramdisk(void* arg)
+{
+   while(!shutdown_flag)
+   {
+      vcos_sleep(1000000);
+      ramdisk_ready_to_shutdown = false;
+      char* cmd_string = malloc(strlen(output_dirname) + 30);
+      strcpy(cmd_string, "mv /dev/shm/raspiphotos/* ");
+      strcat(cmd_string, output_dirname);
+      strcat(cmd_string, "/");
+      system(cmd_string);
+      ramdisk_ready_to_shutdown = true;
+   }
+}
 /**
  * main
  */
 int main(int argc, const char **argv)
 {
+   system("mkdir /dev/shm/raspiphotos");
    shutdown_flag = false;
+   ramdisk_ready_to_shutdown = true;
    wiringPiSetup();
    pinMode(0,INPUT);
    pinMode(2,OUTPUT);
    pthread_t startCamera;
    pthread_create(&startCamera, NULL, flashLED, NULL);
+   pthread_t copyPhotos;
+   pthread_create(&copyPhotos, NULL, ramdisk, NULL);
    wiringPiISR(0,INT_EDGE_RISING,shutdown);
    piHiPri(99);
 
