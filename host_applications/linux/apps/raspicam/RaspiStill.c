@@ -508,9 +508,11 @@ static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
             if (state->filename)
                strncpy(state->filename, argv[i + 1], len+1);
             i++;
-            char* temp_output_dirname = dirname(state->filename);
+			char* temp_call_filename = strdup(state->filename);
+            char* temp_output_dirname = dirname(temp_call_filename);
             output_dirname = malloc(strlen(temp_output_dirname)+1);
             strcpy(output_dirname,temp_output_dirname);
+			free(temp_call_filename);
 
          }
          else
@@ -1488,11 +1490,16 @@ MMAL_STATUS_T create_filenames(char** finalName, char** tempName, char * pattern
       }
       return MMAL_ENOMEM;    // It may be some other error, but it is not worth getting it right
    }
-   char* finalNameBase = basename(finalName);
-   free(*finalName);
    free(*tempName);
+   puts(*finalName);
+   char* finalNameBase = basename(*finalName);
+   puts(*finalName);
+   char* toFreeFinal = *finalName;
    asprintf(finalName,"/dev/shm/raspiphotos/%s",finalNameBase);
    asprintf(tempName, "%s~",*finalName);
+   puts(*finalName);
+   puts(*tempName);
+   free(toFreeFinal);
    return MMAL_SUCCESS;
 }
 
@@ -1548,7 +1555,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
    {
          while (!ramdisk_ready_to_shutdown)
          {
-          vcos_sleep(10000);  
+          vcos_sleep(500);  
          }
 
          system("shutdown -P now");
@@ -1892,16 +1899,19 @@ void* flashLED(void* arg)
 
 void* ramdisk(void* arg)
 {
-   while(!shutdown_flag && output_dirname != NULL)
+   while(!shutdown_flag)
    {
-      vcos_sleep(1000000);
-      ramdisk_ready_to_shutdown = false;
-      char* cmd_string = malloc(strlen(output_dirname) + 30);
-      strcpy(cmd_string, "mv /dev/shm/raspiphotos/* ");
-      strcat(cmd_string, output_dirname);
-      strcat(cmd_string, "/");
-      system(cmd_string);
-      ramdisk_ready_to_shutdown = true;
+      vcos_sleep(1000);
+	  if (output_dirname != NULL)
+	   {
+		  ramdisk_ready_to_shutdown = false;
+		  char* cmd_string = malloc(strlen(output_dirname) + 30);
+		  strcpy(cmd_string, "mv /dev/shm/raspiphotos/*.jpg ");
+		  strcat(cmd_string, output_dirname);
+		  strcat(cmd_string, "/");
+		  system(cmd_string);
+		  ramdisk_ready_to_shutdown = true;
+		}
    }
 }
 /**
