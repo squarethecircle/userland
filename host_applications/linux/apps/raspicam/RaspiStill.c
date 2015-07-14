@@ -1660,7 +1660,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
       if (*frame == 0)
          vcos_sleep(1000);
       else
-         vcos_sleep(700);
+         vcos_sleep(100);
 
       *frame+=1;
 
@@ -1884,7 +1884,7 @@ void shutdown(void)
 	shutdown_flag = true;
 }
 
-void* flashLED(void* arg)
+void flashLED(void* arg)
 {
    while(true)
    {
@@ -1893,7 +1893,7 @@ void* flashLED(void* arg)
    }
 }
 
-void* ramdisk(void* arg)
+void ramdisk(void* arg)
 {
    while(!shutdown_flag)
    {
