@@ -1897,14 +1897,14 @@ void ramdisk(void* arg)
 {
    while(!shutdown_flag)
    {
-      vcos_sleep(1000);
+	  vcos_sleep(10);
 	  if (output_dirname != NULL)
 	   {
 		  ramdisk_ready_to_shutdown = false;
-		  char* cmd_string = malloc(strlen(output_dirname) + 35);
+		  char* cmd_string = malloc(strlen(output_dirname) + 60);
 		  strcpy(cmd_string, "mv /dev/shm/raspiphotos/*.jpg ");
 		  strcat(cmd_string, output_dirname);
-		  strcat(cmd_string, "/");
+		  strcat(cmd_string, "/ 2> /dev/null");
 		  system(cmd_string);
 		  free(cmd_string);
 		  ramdisk_ready_to_shutdown = true;
